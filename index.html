@@ -1,0 +1,453 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DTF Halftone Studio</title>
+<!-- Nota: nesta versão enxuta ficaram de fora Web Worker/OffscreenCanvas, exportação em tiles, underbase branca, dithering/FM e cores salvas. O restante está funcional. -->
+<style>
+:root{--bg:#111;--pn:#1a1a1a;--bd:#2a2a2a;--tx:#fff;--t2:#999;--ac:#7c5cfc}
+*{box-sizing:border-box;margin:0}
+html,body{height:100%}
+body{background:var(--bg);color:var(--tx);font:13px/1.4 system-ui,Segoe UI,Roboto,sans-serif;display:flex;flex-direction:column;overflow:hidden}
+body.basic .adv{display:none!important}
+header{height:48px;display:flex;align-items:center;gap:8px;padding:0 14px;background:var(--pn);border-bottom:1px solid var(--bd);flex:none}
+header h1{font-size:15px;font-weight:600;margin-right:auto}header h1 span{color:var(--ac)}
+button,select,input[type=text],input[type=number]{font:inherit;color:var(--tx);background:#222;border:1px solid var(--bd);border-radius:6px;padding:5px 8px;min-width:0}
+button{cursor:pointer}button:hover{border-color:var(--ac)}
+.pri{background:var(--ac);border-color:var(--ac);font-weight:600}
+main{flex:1;display:grid;grid-template-columns:300px 1fr 300px;min-height:0}
+aside{background:var(--pn);overflow:auto;padding:8px;display:flex;flex-direction:column;gap:8px}
+aside.l{border-right:1px solid var(--bd)}aside.r{border-left:1px solid var(--bd)}
+details,.card{background:#151515;border:1px solid var(--bd);border-radius:8px;padding:8px 10px}
+summary,.card h3{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--t2);font-weight:600;cursor:pointer;margin-bottom:2px}
+.card h3{cursor:default;margin-bottom:6px}
+details>div,.card>div{margin-top:6px}details>div,.col{display:flex;flex-direction:column;gap:7px}
+label{display:flex;justify-content:space-between;color:var(--t2);font-size:12px}label b{color:var(--tx);font-weight:500}
+input[type=range]{width:100%;accent-color:var(--ac)}
+input[type=color]{width:38px;height:30px;padding:0;border:1px solid var(--bd);border-radius:6px;background:none;flex:none}
+.row{display:flex;gap:6px;align-items:center}.row>*{flex:1;min-width:0}
+.seg{display:flex}.seg button{flex:1;border-radius:0;padding:5px 2px;font-size:12px}
+.seg button:first-child{border-radius:6px 0 0 6px}.seg button:last-child{border-radius:0 6px 6px 0}
+.seg button.on{background:var(--ac);border-color:var(--ac)}
+.sw{display:flex;gap:6px;flex-wrap:wrap}.sw button{width:24px;height:24px;padding:0;border-radius:50%}
+.tgl{display:flex;gap:8px;align-items:center;color:var(--t2)}
+.ctr{display:flex;flex-direction:column;min-width:0;min-height:0}
+.bar{display:flex;gap:6px;padding:8px;background:var(--pn);border-bottom:1px solid var(--bd);flex-wrap:wrap;align-items:center}
+.bar .seg{flex:none}.bar .sp{margin-left:auto;display:flex;gap:4px;align-items:center;flex-wrap:wrap}
+#vp{flex:1;position:relative;background:#0b0b0b;min-height:0;cursor:grab;touch-action:none}
+#vp.pick{cursor:crosshair}#cv{position:absolute;inset:0;width:100%;height:100%}
+#dz{position:absolute;inset:16px;border:2px dashed var(--bd);border-radius:12px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;color:var(--t2);text-align:center;cursor:pointer;z-index:2;background:#0b0b0b}
+#dz.over{border-color:var(--ac);color:var(--tx)}
+.info{color:var(--t2);font-size:12px;word-break:break-all}.info b{color:var(--tx);font-weight:500}
+.priv{color:var(--t2);font-size:11px;text-align:center;margin-top:auto}
+.pl{display:grid;grid-template-columns:repeat(3,1fr);gap:5px}.pl button{font-size:11px;padding:5px 2px}
+.it{display:flex;gap:6px;font-size:12px;color:var(--t2)}.it i{flex:none;width:8px;height:8px;border-radius:50%;margin-top:4px;background:#2ecc71}.it.w i{background:#f1c40f}.it.b i{background:#e74c3c}
+.big{font-size:30px;font-weight:700;color:var(--ac)}
+.hb{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--t2)}.hb div{height:8px;border-radius:4px;background:var(--ac)}
+.pr{display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer}.pr i{width:18px;height:18px;border-radius:4px;border:1px solid var(--bd);flex:none}
+@media(max-width:900px){body{overflow:auto}main{display:flex;flex-direction:column}.ctr{order:-1;height:62vh;flex:none}aside{overflow:visible}}
+</style>
+</head>
+<body class="basic">
+<header>
+  <h1>DTF <span>Halftone</span> Studio</h1>
+  <button id="bMode" title="Alternar entre controles básicos e avançados">Modo: Básico</button>
+  <button id="bNew">Novo projeto</button>
+  <button id="bReset" title="Voltar os parâmetros ao padrão">Restaurar</button>
+  <button id="bExp" class="pri">Exportar</button>
+</header>
+<main>
+<aside class="l">
+  <details open><summary>Tamanho de impressão</summary><div>
+    <div class="row"><input type="number" id="dw" min="1" step="0.1" title="Largura"><input type="number" id="dh" min="1" step="0.1" title="Altura"><select id="du"><option value="cm">cm</option><option value="in">pol</option></select></div>
+    <div class="row"><select id="dd"><option>150</option><option>200</option><option selected>300</option><option value="c">Personalizado</option></select><input type="number" id="dn" min="50" max="1200" style="display:none" placeholder="DPI"></div>
+    <div class="tgl"><input type="checkbox" id="dl" checked><label for="dl" style="display:inline">Travar proporção</label></div>
+    <div class="info" id="dpx">—</div>
+  </div></details>
+  <details class="adv"><summary>Ajustes</summary><div class="col" data-sl="bp,gam,wp,expo,ctr,sat,sharp"></div></details>
+  <details open><summary>Camiseta</summary><div>
+    <div class="row"><input type="color" id="cp" value="#000000"><input type="text" id="hx" value="#000000" maxlength="7"><button id="eyeS" style="flex:none" title="Conta-gotas: capturar cor da camiseta na arte">💧</button></div>
+    <div class="sw" id="sw"></div>
+    <div class="sw" id="rc" title="Recentes"></div>
+  </div></details>
+  <details open><summary>Smart Garment Knockout</summary><div>
+    <div class="seg" id="sk"><button data-v="exact" title="Correspondência restritiva">Exact</button><button data-v="balanced" title="Equilíbrio">Balanced</button><button data-v="aggr" title="Máximo uso do tecido">Aggressive</button></div>
+    <div class="seg" data-k="mode"><button data-v="1" title="Próximos da camiseta ficam transparentes">Knockout</button><button data-v="2" title="Transparência progressiva">Suavizado</button><button data-v="3" title="Transição em halftone">Halftone</button></div>
+    <div class="adv"><select data-k="deMode" title="Correspondência de cor"><option value="0">Correspondência: Rápida (CIE76)</option><option value="1">Correspondência: Perceptual (CIEDE2000)</option></select></div>
+    <div class="col" data-sl="tol"></div>
+    <div class="col adv" data-sl="rem,str,minA,edge,defr"></div>
+    <div class="row"><button id="eyeR" title="Clique na arte para adicionar cor de referência">💧 Cor de referência</button></div>
+    <div id="refs" class="col"></div>
+  </div></details>
+  <details open><summary>Halftone</summary><div>
+    <div class="seg" data-k="color"><button data-v="0">Monocromático</button><button data-v="1">Mantendo cores</button></div>
+    <select data-k="type"><option value="round">Redondo</option><option value="ellipse">Elíptico</option><option value="square">Quadrado</option><option value="diamond">Losango</option><option value="line">Linha</option><option value="grid">Grid</option></select>
+    <div class="adv"><select data-k="ink"><option value="auto">Tinta mono: automática</option><option value="white">Tinta mono: branca</option><option value="black">Tinta mono: preta</option></select></div>
+    <div class="adv"><select data-k="area"><option value="0">Área: Full Artwork</option><option value="1">Área: Fades &amp; Shadows</option></select></div>
+    <div class="seg" id="dt"><button data-v="18">Grosso</button><button data-v="30">Médio</button><button data-v="48">Fino</button></div>
+    <div class="col" data-sl="inten,lpi"></div>
+    <div class="col adv" data-sl="size,gain,minDot,maxCov,solid,thr,contrast"></div>
+    <label>Ângulo (°)</label><input type="number" data-k="angle" list="angs" min="0" max="180" step="0.5"><datalist id="angs"><option>0</option><option>15</option><option>22.5</option><option>30</option><option>45</option><option>60</option><option>75</option><option>90</option></datalist>
+    <div class="tgl"><input type="checkbox" data-k="inv" id="inv"><label for="inv" style="display:inline">Inverter retícula</label></div>
+  </div></details>
+  <div class="priv">Sua arte é processada localmente no navegador.</div>
+</aside>
+
+<section class="ctr">
+  <div class="bar">
+    <div class="seg" id="views"><button data-v="orig">Original</button><button data-v="proc" class="on">Processada</button><button data-v="shirt">Camiseta</button><button data-v="cmp" title="Linha móvel original/processado">Split</button><button data-v="map" title="Verde=camiseta, amarelo=transição, vermelho=imprime">Mapa</button></div>
+    <div class="sp"><button id="zo">−</button><span id="zl" style="min-width:42px;text-align:center">100%</span><button id="zi">+</button><button data-z="0">Fit</button><button data-z="1">100%</button><button data-z="2">200%</button><button data-z="4">400%</button><button data-z="8">800%</button></div>
+  </div>
+  <div id="vp">
+    <div id="dz"><div style="font-size:15px;color:var(--tx)">Arraste a estampa aqui</div><div>PNG, JPG, JPEG ou WebP</div><button class="pri">Selecionar arquivo</button></div>
+    <canvas id="cv"></canvas>
+  </div>
+  <input type="file" id="fi" accept="image/png,image/jpeg,image/webp" hidden>
+</section>
+
+<aside class="r">
+  <div class="card"><h3>Ink Saver</h3><div class="big" id="sv">—</div><div class="info" id="sd">Carregue uma arte.</div></div>
+  <div class="card"><h3>Print Inspection</h3><div class="col" id="ins"><div class="info">—</div></div></div>
+  <div class="card adv"><h3>Garment Similarity</h3><div class="col" id="hist"><div class="info">—</div></div></div>
+  <div class="card"><h3>Cores da arte</h3><div class="row"><button id="bPal">Analisar cores</button><button id="bAuto" title="Detecta tipo de arte e sugere ajustes">Auto Halftone</button></div><div class="col" id="pal" style="margin-top:6px"></div><div class="info" id="auto"></div></div>
+  <div class="card"><h3>Presets</h3><div class="pl" id="pl"></div></div>
+  <div class="card"><h3>Arquivo</h3><div class="info" id="info">Nenhuma imagem carregada.</div></div>
+  <div class="card"><h3>Export</h3><div class="col">
+    <select id="exs"><option value="doc">Dimensão configurada</option><option value="orig">Original</option><option value="c">Custom (largura px)</option></select>
+    <input type="number" id="cw" min="16" placeholder="Largura (px)" style="display:none">
+    <div class="tgl"><input type="checkbox" id="xt" checked><label for="xt" style="display:inline">Transparência</label></div>
+    <div class="tgl"><input type="checkbox" id="xm" checked><label for="xm" style="display:inline">Incluir metadado DPI (pHYs)</label></div>
+    <div class="info">Formato PNG · sRGB</div>
+    <div class="info" id="esz">—</div>
+    <button class="pri" id="bDl">EXPORTAR PNG DTF</button>
+  </div></div>
+</aside>
+</main>
+
+<script>
+/* ======== DTF Halftone Studio — módulos: AppState, ColorEngine, Adjust, Knockout, Halftone, Preview, Analysis, Export, Presets, UI ======== */
+const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)],cl=(v,a,b)=>v<a?a:v>b?b:v;
+
+/* ---------- AppState ---------- */
+const DEF={shirt:'#000000',mode:3,tol:35,rem:35,str:100,minA:0,edge:30,defr:0,deMode:0,area:0,solid:100,color:1,type:'round',ink:'auto',
+ inten:100,size:100,gain:0,minDot:0.2,maxCov:100,lpi:30,angle:45,thr:50,contrast:0,inv:0,bp:0,gam:100,wp:255,expo:0,ctr:0,sat:0,sharp:0};
+/* label, unidade, min, max, passo, dica, avançado */
+const SL={tol:['Tolerância de cor','%',0,100,1,'Faixa de ΔE considerada próxima da camiseta'],
+ rem:['Remove threshold','%',0,100,1,'Abaixo disso (% da tolerância) → alpha 0',1],
+ str:['Strength','%',0,100,1,'Força da transparência na zona de transição',1],
+ minA:['Alpha mínimo','%',0,100,1,'Alpha mínimo fora da zona REMOVE',1],
+ edge:['Edge protection','%',0,100,1,'Protege bordas/detalhes (Sobel)',1],
+ defr:['De-Fringe','%',0,100,1,'Limpa halo nas bordas após o knockout',1],
+ inten:['Intensidade','%',0,100,1,'Quanto a retícula atua (0% = sólido)'],
+ lpi:['Frequência','lpi',8,80,1,'Linhas por polegada no tamanho final'],
+ size:['Dot size','%',30,200,1,'Tamanho geométrico máximo do ponto',1],
+ gain:['Dot gain','%',-50,100,1,'Curva tonal: expande/retrai a cobertura',1],
+ minDot:['Minimum dot','mm',0,1,0.05,'Menor ponto imprimível',1],
+ maxCov:['Cobertura máxima','%',50,100,1,'Mantém aberturas em áreas escuras',1],
+ solid:['Preservar sólidos acima de','%',50,100,1,'100% = desligado',1],
+ thr:['Threshold','%',0,100,1,'Limite usado na geração dos pontos',1],
+ contrast:['Contraste halftone','%',0,100,1,'Contraste entre claros e escuros',1],
+ bp:['Black point','',0,254,1,'Levels: ponto preto',1],
+ gam:['Midtone / Gamma','%',20,300,1,'Levels: meios-tons (100 = neutro)',1],
+ wp:['White point','',1,255,1,'Levels: ponto branco',1],
+ expo:['Exposição','',-100,100,1,'',1],ctr:['Contraste','',-100,100,1,'',1],sat:['Saturação','',-100,100,1,'',1],sharp:['Sharpen','%',0,200,1,'Unsharp mask',1]};
+const SKM={exact:{tol:15,rem:50,edge:60},balanced:{tol:35,rem:35,edge:30},aggr:{tol:60,rem:20,edge:10}};
+const PRESETS={'Suave':{mode:3,tol:25,inten:70,size:80,lpi:40},'Médio':{mode:3,tol:35,inten:85,size:100,lpi:30},'Forte':{mode:3,tol:55,inten:100,size:110,lpi:22},
+ 'Preta':{shirt:'#000000',mode:3,color:1,tol:35,ink:'white'},'Branca':{shirt:'#ffffff',mode:3,color:1,tol:30,ink:'black'},'Colorida':{shirt:'#2e7d32',mode:3,color:1,tol:35,deMode:1},
+ 'Foto':{type:'round',lpi:45,angle:45,mode:3,tol:30,minDot:0.15,gam:90,edge:20,solid:100},'Ilustração':{type:'round',lpi:32,angle:45,mode:3,tol:35,edge:40,solid:96},
+ 'Vetor':{type:'square',lpi:25,angle:45,mode:1,tol:25,edge:60,solid:90,area:1},'Vintage':{type:'ellipse',lpi:20,angle:30,mode:3,tol:45,contrast:30,size:110},
+ 'Soft Feel':{type:'round',lpi:55,mode:3,tol:35,inten:70,minDot:0.1},'Max Detail':{lpi:60,minDot:0.1,edge:60,tol:25,type:'round'},
+ 'Ink Saver':{mode:3,tol:60,inten:100,size:110,lpi:25,rem:30,maxCov:90},'Large Print':{lpi:20,minDot:0.3},'Small Chest':{lpi:50,minDot:0.15,edge:45}};
+let P={...DEF},D={wcm:30,dpi:300,unit:'cm'},REFS=[],RECENT=[],C={},orig=null,OW=0,OH=0,fname='',fsize=0,hasAlpha=false,prev=null,prevData=null,LAST=null,SPLIT=.5,tool=null;
+const procC=document.createElement('canvas'),matchC=document.createElement('canvas'),V={z:1,x:0,y:0,view:'proc'};
+const DOCW=()=>D.wcm/2.54*D.dpi,DOCH=()=>OW?DOCW()*OH/OW:0;
+
+/* ---------- ColorEngine: sRGB→LAB, ΔE76 / ΔE2000 ---------- */
+const LIN=Float64Array.from({length:256},(_,i)=>{const c=i/255;return c<=.04045?c/12.92:((c+.055)/1.055)**2.4});
+const LAB=[0,0,0],fl=t=>t>.008856?Math.cbrt(t):7.787*t+16/116;
+function lab(r,g,b){const R=LIN[r],G=LIN[g],B=LIN[b];
+ const x=fl((.4124*R+.3576*G+.1805*B)/.95047),y=fl(.2126*R+.7152*G+.0722*B),z=fl((.0193*R+.1192*G+.9505*B)/1.08883);
+ LAB[0]=116*y-16;LAB[1]=500*(x-y);LAB[2]=200*(y-z);return LAB}
+const hex2rgb=h=>[1,3,5].map(i=>parseInt(h.slice(i,i+2),16));
+const rgb2hex=(r,g,b)=>'#'+[r,g,b].map(v=>Math.round(v).toString(16).padStart(2,'0')).join('');
+const de76=(L1,a1,b1,L2,a2,b2)=>Math.sqrt((L1-L2)**2+(a1-a2)**2+(b1-b2)**2);
+function de00(L1,a1,b1,L2,a2,b2){const r=Math.PI/180,C1=Math.hypot(a1,b1),C2=Math.hypot(a2,b2),Cm=(C1+C2)/2,G=.5*(1-Math.sqrt(Cm**7/(Cm**7+6103515625))),A1=a1*(1+G),A2=a2*(1+G),c1=Math.hypot(A1,b1),c2=Math.hypot(A2,b2);
+ let h1=Math.atan2(b1,A1)/r;if(h1<0)h1+=360;let h2=Math.atan2(b2,A2)/r;if(h2<0)h2+=360;
+ const dL=L2-L1,dC=c2-c1;let dh=h2-h1;if(c1*c2===0)dh=0;else if(dh>180)dh-=360;else if(dh<-180)dh+=360;
+ const dH=2*Math.sqrt(c1*c2)*Math.sin(dh*r/2),Lm=(L1+L2)/2,Cb=(c1+c2)/2;let hm=h1+h2;if(c1*c2!==0&&Math.abs(h1-h2)>180)hm+=hm<360?360:-360;hm/=2;
+ const T=1-.17*Math.cos((hm-30)*r)+.24*Math.cos(2*hm*r)+.32*Math.cos((3*hm+6)*r)-.2*Math.cos((4*hm-63)*r),
+ Sl=1+.015*(Lm-50)**2/Math.sqrt(20+(Lm-50)**2),Sc=1+.045*Cb,Sh=1+.015*Cb*T,Rc=2*Math.sqrt(Cb**7/(Cb**7+6103515625)),Rt=-Math.sin(60*Math.exp(-(((hm-275)/25)**2))*r)*Rc;
+ return Math.sqrt((dL/Sl)**2+(dC/Sc)**2+(dH/Sh)**2+Rt*(dC/Sc)*(dH/Sh))}
+
+/* ---------- Adjust: levels, exposição, contraste, saturação, sharpen ---------- */
+function adjust(src,W,H,P){const d=src.data,out=new ImageData(new Uint8ClampedArray(d),W,H),o=out.data;
+ const lut=new Uint8Array(256),bp=P.bp,wp=Math.max(P.wp,bp+1),g=1/(P.gam/100),ex=Math.pow(2,P.expo/50),cf=(259*(P.ctr*2.55+255))/(255*(259-P.ctr*2.55));
+ for(let i=0;i<256;i++){let v=cl((i-bp)/(wp-bp),0,1);v=Math.pow(v,g)*ex*255;v=cf*(v-128)+128;lut[i]=cl(v,0,255)}
+ const sa=1+P.sat/100;
+ for(let i=0;i<d.length;i+=4){let r=lut[d[i]],g2=lut[d[i+1]],b=lut[d[i+2]];
+  if(P.sat){const y=.299*r+.587*g2+.114*b;r=cl(y+(r-y)*sa,0,255);g2=cl(y+(g2-y)*sa,0,255);b=cl(y+(b-y)*sa,0,255)}
+  o[i]=r;o[i+1]=g2;o[i+2]=b}
+ if(P.sharp>0){const s=new Uint8ClampedArray(o),k=P.sharp/100;
+  for(let y=1;y<H-1;y++)for(let x=1;x<W-1;x++){const i=(y*W+x)*4;if(!s[i+3])continue;
+   for(let c=0;c<3;c++){let sum=0;for(let dy=-1;dy<=1;dy++)for(let dx=-1;dx<=1;dx++)sum+=s[i+(dy*W+dx)*4+c];o[i+c]=cl(s[i+c]+k*(s[i+c]-sum/9),0,255)}}}
+ return out}
+
+/* ---------- Edge map (Sobel) + Distance map (ΔE até camiseta/refs) ---------- */
+function edgeMap(img,W,H){const d=img.data,L=new Float32Array(W*H),e=new Float32Array(W*H);
+ for(let i=0;i<W*H;i++)L[i]=d[i*4+3]?.3*d[i*4]+.59*d[i*4+1]+.11*d[i*4+2]:0;
+ for(let y=1;y<H-1;y++)for(let x=1;x<W-1;x++){const i=y*W+x,
+  gx=-L[i-W-1]-2*L[i-1]-L[i+W-1]+L[i-W+1]+2*L[i+1]+L[i+W+1],gy=-L[i-W-1]-2*L[i-W]-L[i-W+1]+L[i+W-1]+2*L[i+W]+L[i+W+1];
+  e[i]=Math.min(1,Math.hypot(gx,gy)/300)}
+ return e}
+function distMap(img,W,H,P){const d=img.data,refs=[P.shirt,...REFS.filter(r=>r.on).map(r=>r.hex)].map(h=>lab(...hex2rgb(h)).slice()),
+ f=P.deMode?de00:de76,out=new Float32Array(W*H);
+ for(let i=0;i<W*H;i++){if(!d[i*4+3]){out[i]=999;continue}
+  const l=lab(d[i*4],d[i*4+1],d[i*4+2]);let m=1e9;
+  for(const r of refs){const v=f(l[0],l[1],l[2],r[0],r[1],r[2]);if(v<m)m=v}out[i]=m}
+ return out}
+
+/* ---------- Knockout + Halftone (puro; sc = px de trabalho / px do documento) ---------- */
+function process(src,W,H,sc,P,dist,edge,dpi){
+ const d=src.data,N=W*H,out=new ImageData(W,H),o=out.data;
+ const T=P.tol*.6+.01,Rm=T*P.rem/100,ep=P.edge/100,str=P.str/100,minA=P.minA/100;
+ let ak=new Float32Array(N),aIn=0,aKo=0;
+ const dd=i=>dist[i]+edge[i]*ep*T*2;
+ /* 1) Garment match: REMOVE / TRANSITION / PRESERVE */
+ for(let i=0;i<N;i++){const a0=d[i*4+3]/255;aIn+=a0;if(!a0)continue;
+  const x=dd(i);let k;
+  if(x<=Rm)k=0;else if(x>=T)k=1;else k=P.mode===1?0:P.mode===2?(x-Rm)/(T-Rm):1;
+  k=1-(1-k)*str;if(k>0&&k<minA)k=minA;ak[i]=k}
+ /* 2) De-fringe: erosão suave da máscara */
+ if(P.defr>0){const f=P.defr/100,a2=new Float32Array(ak);
+  for(let y=1;y<H-1;y++)for(let x=1;x<W-1;x++){const i=y*W+x;if(!ak[i])continue;
+   const m=Math.min(ak[i-1],ak[i+1],ak[i-W],ak[i+W]);if(m<ak[i])a2[i]=ak[i]+(m-ak[i])*f}
+  ak=a2}
+ for(let i=0;i<N;i++)aKo+=d[i*4+3]/255*ak[i];
+ /* 3) Halftone */
+ const sL=lab(...hex2rgb(P.shirt))[0],ink=P.ink==='white'?[255,255,255]:P.ink==='black'?[0,0,0]:(sL<=55?[255,255,255]:[0,0,0]),inkL=ink[0]>127;
+ const kk=1+P.contrast/100*4,thr=P.thr/100,inten=P.inten/100,cell=Math.max(2,dpi/P.lpi*sc),ang=P.angle*Math.PI/180,cs=Math.cos(ang),sn=Math.sin(ang);
+ const gm=1/(1+P.gain/100),sz=(P.size/100)**2,maxC=P.maxCov/100,sol=(P.area?Math.min(P.solid,95):P.solid)/100,minD=P.minDot/25.4*dpi*sc;
+ let cI=1e9,cJ=1e9,cc=1;
+ for(let y=0;y<H;y++)for(let x=0;x<W;x++){
+  const i=y*W+x,k4=i*4,a0=d[k4+3];if(!a0||ak[i]<=0)continue;
+  const u=x*cs+y*sn,v=y*cs-x*sn,I=Math.floor(u/cell),J=Math.floor(v/cell);
+  if(I!==cI||J!==cJ){cI=I;cJ=J;
+   const cu=(I+.5)*cell,cv=(J+.5)*cell;
+   let px=Math.round(cu*cs-cv*sn),py=Math.round(cu*sn+cv*cs);px=cl(px,0,W-1);py=cl(py,0,H-1);
+   let s=py*W+px;if(!d[s*4+3])s=i;
+   const L=lab(d[s*4],d[s*4+1],d[s*4+2])[0],prox=cl((dd(s)-Rm)/(T-Rm),0,1),tone=inkL?L/100:1-L/100;
+   const val=P.mode===3?(P.color?prox:tone*prox):tone;
+   let t=cl(.5+(val-thr)*kk,0,1);if(P.inv)t=1-t;
+   cc=1+(t-1)*inten;
+   if(val>=sol&&!P.inv)cc=1;
+   else{cc=Math.pow(cc,gm);cc=Math.min(1,cc*sz);cc=Math.min(cc,maxC)}
+   if(cc<.995&&cc>0&&minD>0){const dia=Math.sqrt(cc*4/Math.PI)*cell;if(dia<minD*.5)cc=0;else if(dia<minD)cc=Math.PI/4*minD*minD/(cell*cell)}}
+  if(cc<.02)continue;
+  let m=1;
+  if(cc<.995){const du=u-(I+.5)*cell,dv=v-(J+.5)*cell,au=Math.abs(du),av=Math.abs(dv),t=P.type;
+   if(t==='line')m=cc*cell*.5-av+.5;
+   else if(t==='square')m=cell*.5*Math.sqrt(cc)-Math.max(au,av)+.5;
+   else if(t==='diamond')m=(cell*Math.sqrt(cc/2)-(au+av))*.7071+.5;
+   else if(t==='grid')m=cell*(1-Math.sqrt(1-cc))*.5-Math.min(au,av)+.5;
+   else{const r=cell*.7071*Math.sqrt(cc),e=t==='ellipse'?Math.hypot(du*.7,dv*1.43):Math.hypot(du,dv);m=r-e+.5}
+   m=cl(m,0,1)}
+  const a=a0*ak[i]*m;if(a<=0)continue;
+  if(P.color){o[k4]=d[k4];o[k4+1]=d[k4+1];o[k4+2]=d[k4+2]}else{o[k4]=ink[0];o[k4+1]=ink[1];o[k4+2]=ink[2]}
+  o[k4+3]=a}
+ let sOut=0,semi=0,nz=0;for(let i=3;i<o.length;i+=4){const a=o[i];sOut+=a;if(a>0){nz++;if(a<245&&a>10)semi++}}
+ return{out,covIn:aIn/N,covOut:sOut/255/N,ko:(aIn-aKo)/N,semi:nz?semi/nz:0}}
+
+/* ---------- Pipeline com cache por estágio: Source→Adjusted→Dist→Process ---------- */
+function pipeline(src,W,H,sc,P,c){
+ const ka=[P.bp,P.gam,P.wp,P.expo,P.ctr,P.sat,P.sharp].join();
+ if(c.ka!==ka){c.adj=adjust(src,W,H,P);c.edge=edgeMap(c.adj,W,H);c.ka=ka;c.kd=null}
+ const kd=ka+P.shirt+P.deMode+JSON.stringify(REFS);
+ if(c.kd!==kd){c.dist=distMap(c.adj,W,H,P);c.kd=kd;c.fresh=1}
+ return process(c.adj,W,H,sc,P,c.dist,c.edge,D.dpi)}
+
+/* ---------- PreviewRenderer ---------- */
+const cv=$('#cv'),cx=cv.getContext('2d'),vp=$('#vp'),DPR=Math.min(2,window.devicePixelRatio||1);
+const PAT=(()=>{const c=document.createElement('canvas');c.width=c.height=16;const g=c.getContext('2d');g.fillStyle='#262626';g.fillRect(0,0,16,16);g.fillStyle='#1c1c1c';g.fillRect(0,0,8,8);g.fillRect(8,8,8,8);return cx.createPattern(c,'repeat')})();
+function bgFill(dx,dy,w,h,shirt){cx.fillStyle=shirt||PAT;cx.fillRect(dx,dy,w,h)}
+function drawKind(k,dx,dy,w,h){
+ if(k==='map'){cx.drawImage(matchC,dx,dy,w,h);return}
+ bgFill(dx,dy,w,h,k.endsWith('shirt')?P.shirt:null);cx.drawImage(k[0]==='o'?prev:procC,dx,dy,w,h)}
+function draw(){
+ cx.setTransform(1,0,0,1,0,0);cx.clearRect(0,0,cv.width,cv.height);if(!prev)return;
+ cx.setTransform(DPR*V.z,0,0,DPR*V.z,DPR*V.x,DPR*V.y);cx.imageSmoothingEnabled=V.z<3;
+ if(V.view==='cmp'){drawKind('oshirt',0,0,OW,OH);cx.save();cx.beginPath();cx.rect(SPLIT*OW,0,OW,OH);cx.clip();drawKind('shirt',0,0,OW,OH);cx.restore();
+  cx.fillStyle='#7c5cfc';cx.fillRect(SPLIT*OW-1.5/V.z,0,3/V.z,OH)}
+ else drawKind(V.view,0,0,OW,OH);
+ $('#zl').textContent=Math.round(V.z*100)+'%'}
+function fit(){if(!prev)return;const vw=vp.clientWidth,vh=vp.clientHeight;V.z=Math.min(vw/OW,vh/OH)*.92;V.x=(vw-OW*V.z)/2;V.y=(vh-OH*V.z)/2;draw()}
+function zoomAt(f,px,py){V.x=px-(px-V.x)*f;V.y=py-(py-V.y)*f;V.z=cl(V.z*f,.02,32);draw()}
+function zoomTo(z){if(!prev)return;const cx0=vp.clientWidth/2,cy0=vp.clientHeight/2;if(!z)return fit();zoomAt(z/V.z,cx0,cy0)}
+function resize(){cv.width=vp.clientWidth*DPR;cv.height=vp.clientHeight*DPR;draw()}
+new ResizeObserver(resize).observe(vp);
+vp.addEventListener('wheel',e=>{e.preventDefault();const r=vp.getBoundingClientRect();zoomAt(e.deltaY<0?1.15:1/1.15,e.clientX-r.left,e.clientY-r.top)},{passive:false});
+let drag=null;
+vp.addEventListener('pointerdown',e=>{if(e.target.closest('#dz')||!prev)return;const r=vp.getBoundingClientRect(),mx=e.clientX-r.left,my=e.clientY-r.top;
+ if(tool){const ix=Math.floor((mx-V.x)/V.z/OW*prev.width),iy=Math.floor((my-V.y)/V.z/OH*prev.height);
+  if(ix>=0&&iy>=0&&ix<prev.width&&iy<prev.height){const i=(iy*prev.width+ix)*4,p=prevData.data;
+   if(p[i+3]){const h=rgb2hex(p[i],p[i+1],p[i+2]);if(tool==='s')setShirt(h);else{REFS.push({hex:h,on:true});refsUI();schedule()}}}
+  setTool(null);return}
+ if(V.view==='cmp'&&Math.abs(mx-(V.x+SPLIT*OW*V.z))<12)drag='s';else drag=[e.clientX,e.clientY];vp.setPointerCapture(e.pointerId)});
+vp.addEventListener('pointermove',e=>{if(!drag)return;
+ if(drag==='s'){const r=vp.getBoundingClientRect();SPLIT=cl((e.clientX-r.left-V.x)/V.z/OW,0,1);draw();return}
+ V.x+=e.clientX-drag[0];V.y+=e.clientY-drag[1];drag=[e.clientX,e.clientY];draw()});
+vp.addEventListener('pointerup',()=>drag=null);
+function setTool(t){tool=t;vp.classList.toggle('pick',!!t)}
+$('#eyeS').onclick=()=>setTool(tool==='s'?null:'s');$('#eyeR').onclick=()=>setTool(tool==='r'?null:'r');
+$('#zi').onclick=()=>zoomAt(1.25,vp.clientWidth/2,vp.clientHeight/2);$('#zo').onclick=()=>zoomAt(1/1.25,vp.clientWidth/2,vp.clientHeight/2);
+$$('[data-z]').forEach(b=>b.onclick=()=>zoomTo(+b.dataset.z));
+$('#views').onclick=e=>{const v=e.target.dataset.v;if(!v)return;V.view=v;$$('#views button').forEach(b=>b.classList.toggle('on',b.dataset.v===v));if(v==='map')run();draw()};
+
+/* ---------- Run (debounce) + estatísticas ---------- */
+let tmr;const schedule=()=>{clearTimeout(tmr);tmr=setTimeout(run,110)};
+function run(){if(!prevData)return;const W=prev.width,H=prev.height;
+ const r=pipeline(prevData,W,H,W/DOCW(),P,C);LAST=r;
+ procC.width=W;procC.height=H;procC.getContext('2d').putImageData(r.out,0,0);
+ if(C.fresh){histogram();C.fresh=0}
+ if(V.view==='map')buildMap();
+ draw();stats();info()}
+const TT=()=>{const T=P.tol*.6+.01;return[T*P.rem/100,T]};
+function buildMap(){const W=prev.width,H=prev.height,[Rm,T]=TT(),m=new ImageData(W,H),o=m.data,dist=C.dist,e=C.edge,ep=P.edge/100;
+ for(let i=0;i<W*H;i++){if(dist[i]>900)continue;const x=dist[i]+e[i]*ep*T*2,c=x<=Rm?[46,204,113]:x<T?[241,196,15]:[231,76,60];o[i*4]=c[0];o[i*4+1]=c[1];o[i*4+2]=c[2];o[i*4+3]=255}
+ matchC.width=W;matchC.height=H;matchC.getContext('2d').putImageData(m,0,0)}
+function histogram(){const d=C.dist,b=[0,0,0];let n=0;for(let i=0;i<d.length;i++){if(d[i]>900)continue;n++;b[d[i]<10?0:d[i]<20?1:2]++}
+ $('#hist').innerHTML=['0–10 ΔE','10–20 ΔE','20+ ΔE'].map((t,i)=>{const p=n?b[i]/n*100:0;return`<div class="hb"><span style="width:62px">${t}</span><div style="width:${p*1.2}px"></div>${p.toFixed(0)}%</div>`}).join('')}
+const ptxt=n=>(n*100).toFixed(1)+'%';
+function stats(){const r=LAST;if(!r)return;
+ const red=r.covIn>0?cl(1-r.covOut/r.covIn,0,1):0,ko=r.covIn>0?r.ko/r.covIn:0,ht=Math.max(0,red-ko);
+ $('#sv').textContent=(red*100).toFixed(0)+'%';
+ $('#sd').innerHTML=`Cobertura estimada: original <b>${ptxt(r.covIn)}</b> → processada <b>${ptxt(r.covOut)}</b><br>Redução estimada de área de tinta: <b>${(red*100).toFixed(1)}%</b><br>Garment knockout ${(ko*100).toFixed(1)}% · Halftone/transparência ${(ht*100).toFixed(1)}%`;
+ inspect(r)}
+function inspect(r){const W=DOCW(),H=DOCH(),it=[],add=(l,t)=>it.push(`<div class="it ${l}"><i></i><span>${t}</span></div>`);
+ const pitch=25.4/P.lpi;
+ add('',`Tamanho: ${D.wcm.toFixed(1)}×${(D.wcm*OH/OW).toFixed(1)} cm · ${Math.round(W)}×${Math.round(H)} px @ ${D.dpi} DPI`);
+ add('',`LPI ${P.lpi} (passo ${pitch.toFixed(2)} mm) · menor ponto config. ${P.minDot} mm`);
+ add('',`Cobertura ${ptxt(r.covOut)} · redução ${(r.covIn>0?(1-r.covOut/r.covIn)*100:0).toFixed(0)}%`);
+ add('',hasAlpha?'Transparência original detectada':'Imagem sem transparência original');
+ if(OW<W*.9)add(OW<W*.6?'b':'w',`Resolução insuficiente: arte ${OW}px, necessário ~${Math.round(W)}px. Reduza o tamanho ou use arte maior.`);
+ if(D.dpi<200)add('w','DPI baixo: considere 300 DPI para melhor definição.');
+ if(P.minDot<.15)add('w','Minimum dot < 0,15 mm: pontos podem não imprimir. Suba para ≥0,2 mm.');
+ if(D.dpi/P.lpi<4)add('b',`Retícula muito fina para ${D.dpi} DPI (<4 px/célula). Reduza o LPI.`);
+ if(P.lpi>55&&P.minDot>=.25)add('w','LPI alto com minimum dot grande: pontos serão removidos.');
+ if(r.semi>.35)add('w','Muitas transparências suaves: aumente a intensidade do halftone ou use Knockout.');
+ if(r.covOut>.9)add('w','Cobertura muito alta: reduza a cobertura máxima para economizar tinta.');
+ if(W*H>6e7)add('w','Imagem muito grande: a exportação pode demorar.');
+ $('#ins').innerHTML=it.join('')}
+function info(){if(!orig)return;
+ const e=expSize();
+ $('#info').innerHTML=`<b>${fname}</b><br>${OW}×${OH}px · proporção ${(OW/OH).toFixed(3)}<br>Resolução aparente: <b>${Math.round(OW/(D.wcm/2.54))} DPI</b> no tamanho definido<br>Transparência: ${hasAlpha?'sim':'não'} · ${(fsize/1024).toFixed(0)} KB<br>Camiseta: <b>${P.shirt}</b>`;
+ const cov=LAST?LAST.covOut:0;
+ $('#esz').innerHTML=`Físico <b>${(e.w/e.dpi*2.54).toFixed(1)}×${(e.h/e.dpi*2.54).toFixed(1)} cm</b> · <b>${e.w}×${e.h}</b> px · ${Math.round(e.dpi)} DPI<br>Cobertura estimada ${ptxt(cov)} · ~${Math.max(.05,e.w*e.h*4*.12/1048576).toFixed(1)} MB`;
+ $('#dpx').innerHTML=`Final: <b>${Math.round(DOCW())}×${Math.round(DOCH())} px</b> (${D.wcm.toFixed(1)}×${(D.wcm*OH/OW).toFixed(1)} cm @ ${D.dpi} DPI)`}
+
+/* ---------- ImageLoader ---------- */
+function load(file){if(!file||!/^image\/(png|jpe?g|webp)$/.test(file.type))return;
+ const img=new Image();img.onload=()=>{
+  let w=img.naturalWidth,h=img.naturalHeight;const mx=Math.sqrt(64e6/(w*h));if(mx<1){w=Math.floor(w*mx);h=Math.floor(h*mx)}
+  orig=document.createElement('canvas');orig.width=OW=w;orig.height=OH=h;orig.getContext('2d').drawImage(img,0,0,w,h);
+  URL.revokeObjectURL(img.src);fname=file.name;fsize=file.size;
+  const s=Math.min(1,1200/Math.max(w,h));prev=document.createElement('canvas');prev.width=Math.round(w*s);prev.height=Math.round(h*s);
+  const g=prev.getContext('2d',{willReadFrequently:true});g.imageSmoothingQuality='high';g.drawImage(orig,0,0,prev.width,prev.height);
+  prevData=g.getImageData(0,0,prev.width,prev.height);
+  hasAlpha=false;for(let i=3;i<prevData.data.length;i+=4)if(prevData.data[i]<250){hasAlpha=true;break}
+  C={};D.wcm=+(OW/D.dpi*2.54).toFixed(2);docUI();
+  $('#dz').style.display='none';run();fit()};
+ img.src=URL.createObjectURL(file)}
+$('#dz').onclick=()=>$('#fi').click();
+$('#fi').onchange=e=>{load(e.target.files[0]);e.target.value=''};
+['dragover','dragenter'].forEach(t=>document.addEventListener(t,e=>{e.preventDefault();$('#dz').classList.add('over')}));
+['dragleave','drop'].forEach(t=>document.addEventListener(t,e=>{e.preventDefault();$('#dz').classList.remove('over')}));
+document.addEventListener('drop',e=>load(e.dataTransfer.files[0]));
+$('#bNew').onclick=()=>{orig=prev=prevData=LAST=null;C={};REFS=[];refsUI();$('#dz').style.display='';$('#info').textContent='Nenhuma imagem carregada.';$('#esz').textContent='—';$('#sv').textContent='—';draw()};
+
+/* ---------- DocumentSetup (cm/pol, DPI, trava) ---------- */
+const U=()=>D.unit==='in'?1/2.54:1;
+function docUI(){$('#dw').value=(D.wcm*U()).toFixed(2);$('#dh').value=OW?(D.wcm*OH/OW*U()).toFixed(2):'';info()}
+$('#dw').oninput=e=>{const v=+e.target.value;if(v>0){D.wcm=v/U();if($('#dl').checked)$('#dh').value=(D.wcm*OH/OW*U()).toFixed(2);schedule();info()}};
+$('#dh').oninput=e=>{const v=+e.target.value;if(v>0&&OW){const h=v/U();if($('#dl').checked){D.wcm=h*OW/OH;$('#dw').value=(D.wcm*U()).toFixed(2)}else{D.wcm=h*OW/OH;$('#dw').value=(D.wcm*U()).toFixed(2)}schedule();info()}};
+$('#du').onchange=e=>{D.unit=e.target.value;docUI()};
+$('#dd').onchange=e=>{$('#dn').style.display=e.target.value==='c'?'':'none';if(e.target.value!=='c'){D.dpi=+e.target.value;schedule();info()}};
+$('#dn').oninput=e=>{const v=+e.target.value;if(v>=50){D.dpi=v;schedule();info()}};
+
+/* ---------- UI: controles, presets, cores ---------- */
+$$('[data-sl]').forEach(box=>box.innerHTML=box.dataset.sl.split(',').map(k=>{const[n,,mn,mx,st,tip,adv]=SL[k];
+ return`<div class="${adv?'adv':''}"><label title="${tip||''}">${n}<b data-o="${k}"></b></label><input type="range" data-k="${k}" min="${mn}" max="${mx}" step="${st}"></div>`}).join(''));
+const SW={Preto:'#000000',Branco:'#ffffff',Cinza:'#808080','Azul-marinho':'#1b2a49',Vermelho:'#d32f2f',Verde:'#2e7d32',Bege:'#d9c7a3'};
+$('#sw').innerHTML=Object.entries(SW).map(([n,c])=>`<button title="${n}" data-c="${c}" style="background:${c}"></button>`).join('');
+$('#pl').innerHTML=Object.keys(PRESETS).map(n=>`<button data-p="${n}">${n}</button>`).join('');
+function sync(){$$('[data-k]').forEach(el=>{const k=el.dataset.k;
+ if(el.tagName==='DIV')[...el.children].forEach(b=>b.classList.toggle('on',+b.dataset.v===+P[k]));
+ else if(el.type==='checkbox')el.checked=!!P[k];else el.value=P[k]});
+ $$('[data-o]').forEach(el=>{const k=el.dataset.o;el.textContent=P[k]+SL[k][1]});
+ $('#cp').value=P.shirt;$('#hx').value=P.shirt;
+ $('[data-k=ink]').parentElement.style.display=P.color?'none':''}
+function setShirt(h){h=h.trim();if(/^#?[0-9a-f]{3}$/i.test(h))h='#'+h.replace('#','').split('').map(c=>c+c).join('');
+ if(!/^#?[0-9a-f]{6}$/i.test(h))return;P.shirt=(h[0]==='#'?h:'#'+h).toLowerCase();
+ RECENT=[P.shirt,...RECENT.filter(c=>c!==P.shirt)].slice(0,6);
+ $('#rc').innerHTML=RECENT.map(c=>`<button title="${c}" data-c="${c}" style="background:${c}"></button>`).join('');sync();schedule()}
+function refsUI(){$('#refs').innerHTML=REFS.map((r,i)=>`<div class="row"><i class="pr" style="flex:none"><i style="background:${r.hex}"></i></i><span style="flex:2">${r.hex}</span><input type="checkbox" data-r="${i}" ${r.on?'checked':''} style="flex:none"><button data-d="${i}" style="flex:none">✕</button></div>`).join('')}
+$('#refs').onclick=e=>{if(e.target.dataset.d!=null){REFS.splice(+e.target.dataset.d,1);refsUI();schedule()}};
+$('#refs').onchange=e=>{if(e.target.dataset.r!=null){REFS[+e.target.dataset.r].on=e.target.checked;schedule()}};
+document.addEventListener('input',e=>{const t=e.target,k=t.dataset&&t.dataset.k;if(!k||t.tagName==='DIV')return;
+ P[k]=t.type==='checkbox'?+t.checked:(t.value===''||isNaN(t.value)?t.value:+t.value);sync();schedule()});
+$$('.seg[data-k]').forEach(s=>s.onclick=e=>{if(e.target.dataset.v==null)return;P[s.dataset.k]=+e.target.dataset.v;sync();schedule()});
+$('#sk').onclick=e=>{const m=SKM[e.target.dataset.v];if(m){Object.assign(P,m);sync();schedule()}};
+$('#dt').onclick=e=>{const b=+e.target.dataset.v;if(!b)return;let l=b*(D.dpi<300?D.dpi/300:1);if(D.wcm<15)l*=1.3;else if(D.wcm>40)l*=.8;P.lpi=Math.round(cl(l,8,Math.min(80,D.dpi/4)));sync();schedule()};
+$('#cp').oninput=e=>setShirt(e.target.value);$('#hx').oninput=e=>setShirt(e.target.value);
+$('#sw').onclick=e=>{if(e.target.dataset.c)setShirt(e.target.dataset.c)};
+$('#rc').onclick=e=>{if(e.target.dataset.c)setShirt(e.target.dataset.c)};
+/* Presets inteligentes: ajustam LPI/minDot ao tamanho físico */
+function applyPreset(n){Object.assign(P,PRESETS[n]);
+ if(PRESETS[n].lpi){if(D.wcm<15)P.lpi=Math.round(P.lpi*1.3);else if(D.wcm>40)P.lpi=Math.round(P.lpi*.85);P.lpi=cl(P.lpi,8,Math.min(80,Math.round(D.dpi/4)))}
+ sync();schedule()}
+$('#pl').onclick=e=>{if(e.target.dataset.p)applyPreset(e.target.dataset.p)};
+$('#bReset').onclick=()=>{P={...DEF};REFS=[];refsUI();sync();schedule()};
+$('#bMode').onclick=()=>{const b=document.body.classList.toggle('basic');$('#bMode').textContent='Modo: '+(b?'Básico':'Avançado')};
+
+/* ---------- AnalysisEngine: paleta k-means (LAB) e Auto Halftone ---------- */
+$('#bPal').onclick=()=>{if(!prevData)return;const d=prevData.data,pts=[],st=Math.max(1,Math.floor(d.length/4/4000));
+ for(let i=0;i<d.length/4;i+=st)if(d[i*4+3]>128)pts.push([d[i*4],d[i*4+1],d[i*4+2],...lab(d[i*4],d[i*4+1],d[i*4+2])]);
+ if(!pts.length)return;const K=Math.min(6,pts.length);let cen=Array.from({length:K},(_,i)=>pts[Math.floor(i*pts.length/K)].slice(3)),asg=new Int32Array(pts.length);
+ for(let it=0;it<8;it++){const s=cen.map(()=>[0,0,0,0,0,0,0]);
+  pts.forEach((p,j)=>{let b=0,m=1e9;cen.forEach((c,k)=>{const v=de76(p[3],p[4],p[5],c[0],c[1],c[2]);if(v<m){m=v;b=k}});asg[j]=b;const a=s[b];a[0]+=p[3];a[1]+=p[4];a[2]+=p[5];a[3]+=p[0];a[4]+=p[1];a[5]+=p[2];a[6]++});
+  cen=cen.map((c,k)=>s[k][6]?[s[k][0]/s[k][6],s[k][1]/s[k][6],s[k][2]/s[k][6]]:c);
+  if(it===7)cen.forEach((c,k)=>{c.rgb=s[k][6]?[s[k][3]/s[k][6],s[k][4]/s[k][6],s[k][5]/s[k][6]]:[0,0,0];c.n=s[k][6]})}
+ $('#pal').innerHTML=cen.filter(c=>c.n).sort((a,b)=>b.n-a.n).map(c=>{const h=rgb2hex(...c.rgb);return`<div class="pr" data-h="${h}" title="Usar como referência de knockout"><i style="background:${h}"></i><span style="flex:1">${h}</span><b>${(c.n/pts.length*100).toFixed(0)}%</b></div>`}).join('')};
+$('#pal').onclick=e=>{const r=e.target.closest('.pr');if(r){REFS.push({hex:r.dataset.h,on:true});refsUI();schedule()}};
+$('#bAuto').onclick=()=>{if(!prevData||!C.edge)return;const d=prevData.data,q=new Set;let dark=0,n=0;
+ for(let i=0;i<d.length;i+=4){if(d[i+3]<128)continue;n++;q.add((d[i]>>4)<<8|(d[i+1]>>4)<<4|d[i+2]>>4);if(.3*d[i]+.59*d[i+1]+.11*d[i+2]<60)dark++}
+ let ed=0;for(let i=0;i<C.edge.length;i++)ed+=C.edge[i];ed/=C.edge.length;
+ const t=q.size<70?'Vetor':q.size>900&&ed<.12?'Foto':'Ilustração';applyPreset(t);
+ $('#auto').innerHTML=`Detectado: <b>${t}</b> · ${q.size} cores · bordas ${(ed*100).toFixed(1)}% · áreas escuras ${(dark/Math.max(1,n)*100).toFixed(0)}%${hasAlpha?' · com transparência':''}. Preset aplicado — ajuste à vontade.`};
+
+/* ---------- ExportEngine: PNG alpha em resolução cheia + chunk pHYs ---------- */
+function expSize(){const m=$('#exs').value;$('#cw').style.display=m==='c'?'':'none';
+ let w=m==='orig'?OW:m==='c'?(+$('#cw').value||OW):Math.round(DOCW());
+ w=Math.max(16,Math.min(w,Math.floor(Math.sqrt(1e8*OW/OH))));
+ return{w,h:Math.max(1,Math.round(w*OH/OW)),dpi:w/(D.wcm/2.54)}}
+$('#exs').onchange=()=>{if($('#exs').value==='c'&&!$('#cw').value)$('#cw').value=Math.round(DOCW());info()};$('#cw').oninput=info;
+const CRCT=Array.from({length:256},(_,n)=>{let c=n;for(let k=0;k<8;k++)c=c&1?0xedb88320^(c>>>1):c>>>1;return c>>>0});
+const crc=b=>{let c=~0;for(const v of b)c=CRCT[(c^v)&255]^(c>>>8);return~c>>>0};
+async function withDpi(blob,dpi){const b=new Uint8Array(await blob.arrayBuffer()),ppm=Math.round(dpi/.0254),ch=new Uint8Array(21),dv=new DataView(ch.buffer);
+ dv.setUint32(0,9);ch.set([112,72,89,115],4);dv.setUint32(8,ppm);dv.setUint32(12,ppm);ch[16]=1;dv.setUint32(17,crc(ch.subarray(4,17)));
+ const o=new Uint8Array(b.length+21);o.set(b.subarray(0,33));o.set(ch,33);o.set(b.subarray(33),54);return new Blob([o],{type:'image/png'})}
+function download(){if(!orig)return;const b=$('#bDl'),t=b.textContent;b.textContent='Processando…';
+ setTimeout(()=>{try{const{w,h,dpi}=expSize(),c=document.createElement('canvas');c.width=w;c.height=h;
+  const g=c.getContext('2d',{willReadFrequently:true});g.imageSmoothingQuality='high';g.drawImage(orig,0,0,w,h);
+  const r=pipeline(g.getImageData(0,0,w,h),w,h,w/DOCW(),P,{});
+  g.clearRect(0,0,w,h);if(!$('#xt').checked){g.fillStyle=P.shirt;g.fillRect(0,0,w,h)}
+  const t2=document.createElement('canvas');t2.width=w;t2.height=h;t2.getContext('2d').putImageData(r.out,0,0);g.drawImage(t2,0,0);
+  c.toBlob(async bl=>{if($('#xm').checked)bl=await withDpi(bl,dpi);
+   const a=document.createElement('a');a.href=URL.createObjectURL(bl);a.download=fname.replace(/\.[^.]+$/,'')+'_dtf.png';a.click();
+   setTimeout(()=>URL.revokeObjectURL(a.href),4000);b.textContent=t},'image/png')}catch(e){alert('Falha na exportação: reduza a dimensão.');b.textContent=t}},30)}
+$('#bDl').onclick=download;$('#bExp').onclick=download;
+
+sync();docUI();
+</script>
+</body>
+</html>
